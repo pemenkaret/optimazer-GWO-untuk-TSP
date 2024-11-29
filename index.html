@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Traveling Salesman Problem with Grey Wolf Optimizer</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <!-- Add Leaflet CSS -->
+        <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+        <!-- Add Leaflet JS -->
+        <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    </head>
+
+    <body class="bg-gray-100 text-gray-900">
+        <div class="container mx-auto py-8">
+            <h1 class="text-2xl font-bold mb-4">Traveling Salesman Problem with Grey Wolf Optimizer</h1>
+
+            <!-- Table for City Data -->
+            <table class="min-w-full bg-white border border-gray-200 mb-8">
+                <thead class="bg-gray-200 text-gray-600">
+                    <tr>
+                        <th class="py-2 px-4 border-b">City</th>
+                        <th class="py-2 px-4 border-b">Position X</th>
+                        <th class="py-2 px-4 border-b">Position Y</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body"></tbody>
+            </table>
+
+            <!-- Iteration Button -->
+            <button id="iterateButton"
+                class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mb-8">
+                Start Iteration
+            </button>
+
+            <!-- Fitness Chart -->
+            <canvas id="fitnessChart" width="400" height="200"></canvas>
+
+            <!-- Best Position and Fitness -->
+            <div class="mt-8">
+                <h2 class="text-xl font-bold mb-4">Best Position</h2>
+                <p id="bestPosition" class="text-lg mb-4">Best position will be displayed here.</p>
+                <p id="bestFitness" class="text-lg">Best fitness will be displayed here.</p>
+            </div>
+
+            <!-- Best Route -->
+            <div class="mt-8">
+                <h2 class="text-xl font-bold mb-4">Best Route</h2>
+                <p id="bestRoute" class="text-lg mb-4">Best route will be displayed here.</p>
+            </div>
+
+            <!-- Map Container for Leaflet -->
+            <div id="map" style="height: 800px;" class="my-8"></div>
+        </div>
+
+        <script type="module">
+            import { GWO } from './gwo.js'; // Assuming you have the GWO algorithm defined in a separate file
+
+            const cities = [
+                "Surabaya", "Probolinggo", "Malang", "Madiun", "Tuban", "Sumenep", "sidoarjo", "banyuwangi", "bangil"
+            ];
+            const coordinates = {
+                "Surabaya": { x: -7.250445, y: 112.768845 },
+                "Malang": { x: -7.966620, y: 112.632632 },
+                "Probolinggo": { x: -7.754669, y: 113.215913 },
+                "Tuban": { x: -6.967195, y: 112.038849 },
+                "Madiun": { x: -7.631573, y: 111.529809 },
+                "Sumenep": { x: -7.004613, y: 113.849285 },
+                "sidoarjo": { x: -7.204613, y: 112.949285 },
+                "banyuwangi": { x: -7.304613, y: 112.349285 },
+                "bangil": { x: -7.104613, y: 112.849285 }
+            };
+
+            const tableBody = document.getElementById('table-body');
+            // Display cities in table
+            cities.forEach(city => {
+                const row = document.createElement('tr');
+                row.innerHTML = `<td class="py-2 px-4 border-b">${city}</td>
+                             <td class="py-2 px-4 border-b">${coordinates[city].x}</td>
+                             <td class="py-2 px-4 border-b">${coordinates[city].y}</td>`;
+                tableBody.appendChild(row);
+            });
+
+            // Initialize the chart
+            const ctx = document.getElementById('fitnessChart').getContext('2d');
+            const chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Fitness Over Iterations',
+                        data: [],
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Iteration'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Fitness'
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Initialize the GWO algorithm
+            const gwo = new GWO(5, cities.length);
+
+            function updateChart(iteration, fitnessValue) {
+                chart.data.labels.push(iteration);
+                chart.data.datasets[0].data.push(fitnessValue);
+                chart.update();
+            }
+
+            // Initialize the Leaflet map
+            const map = L.map('map').setView([coordinates["Surabaya"].x, coordinates["Surabaya"].y], 9);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+            // Add city markers to the map
+            const cityMarkers = {};
+            cities.forEach(city => {
+                cityMarkers[city] = L.marker([coordinates[city].x, coordinates[city].y]).addTo(map)
+                    .bindPopup(`<b>${city}</b><br>${coordinates[city].x}, ${coordinates[city].y}`);
+            });
+
+            // Function to run GWO and update UI
+            let previousPath = null; // Variable to store the previous polyline
+
+            function iterate() {
+                let iteration = 0;
+                const maxIterations = 20;
+                const a = 2;
+
+                const interval = setInterval(() => {
+                    if (iteration >= maxIterations) {
+                        clearInterval(interval);
+                        return;
+                    }
+
+                    gwo.mainGWO(a - iteration * (a / maxIterations));
+
+                    // Update the chart with the current fitness
+                    updateChart(iteration + 1, gwo.alphaFitness);
+
+                    // Update Best Position and Fitness
+                    document.getElementById('bestPosition').innerText = `Best Position: ${gwo.alphaPosition}`;
+                    document.getElementById('bestFitness').innerText = `Best Fitness: ${gwo.alphaFitness.toFixed(2)}`;
+
+                    // Generate the best route
+                    let route = gwo.alphaPosition.map(index => cities[index]).join(' -> ');
+                    document.getElementById('bestRoute').innerText = `Best Route: ${route}`;
+
+                    // Draw the best route on the map
+                    const pathCoordinates = gwo.alphaPosition.map(index => [coordinates[cities[index]].x, coordinates[cities[index]].y]);
+
+                    // If there is a previous path, remove it
+                    if (previousPath) {
+                        map.removeLayer(previousPath);
+                    }
+
+                    // Add new path
+                    previousPath = L.polyline(pathCoordinates, { color: 'red', weight: 4 }).addTo(map);
+
+                    iteration++;
+                }, 500);
+            }
+
+            // Start the iteration when the button is clicked
+            document.getElementById('iterateButton').addEventListener('click', () => {
+                // Reset the chart before starting the new iteration
+                chart.data.labels = [];
+                chart.data.datasets[0].data = [];
+                iterate();
+            });
+        </script>
+
+    </body>
+
+</html>
